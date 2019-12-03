@@ -1,10 +1,8 @@
 [package]
-name = "AoC"
+name = "aoc2019"
 version = "0.1.0"
 authors = ["Sijmen Schoon <me@sijmenschoon.nl>"]
 edition = "2018"
-
-[dependencies]
 
 [[bin]]
 name = "01"
