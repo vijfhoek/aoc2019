@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["Sijmen Schoon <me@sijmenschoon.nl>"]
 edition = "2018"
 
+[profile.release]
+debug = true
+
 [[bin]]
 name = "01"
 path = "01/01.rs"
@@ -15,3 +18,10 @@ path = "02/main.rs"
 [[bin]]
 name = "03"
 path = "03/main.rs"
+
+[[bin]]
+name = "04"
+path = "04/main.rs"
+
+[dependencies]
+ordered-float = "1.0"
