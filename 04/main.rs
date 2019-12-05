@@ -1,24 +1,25 @@
 #![feature(const_fn)]
 
-fn filter(p: &u32) -> bool {
-    let string = p.to_string();
-    let bytes = string.as_bytes();
+fn filter(mut p: u32) -> bool {
     let mut double = 0;
     let mut prev_double = 0;
 
     for i in 0..5 {
-        if bytes[i + 1] < bytes[i] {
+        let b = p % 10;
+        let a = p / 10 % 10;
+        if a > b {
             return false;
         }
 
-        if bytes[i] == bytes[i + 1] {
-            if double == bytes[i] {
+        if a == b {
+            if double == a {
                 prev_double = double;
                 double = 0;
-            } else if prev_double != bytes[i] && double == 0 {
-                double = bytes[i]
+            } else if prev_double != a && double == 0 {
+                double = a
             }
         }
+        p = p / 10;
     }
 
     double != 0
@@ -27,7 +28,13 @@ fn filter(p: &u32) -> bool {
 fn main() {
     let from = 100000;
     let to = 999999;
+    let mut count = 0;
 
-    let possibilities = (from..to).filter(filter).count();
-    dbg!(possibilities);
+    for i in from..to {
+        if filter(i) {
+            count += 1
+        }
+    }
+
+    dbg!(count);
 }

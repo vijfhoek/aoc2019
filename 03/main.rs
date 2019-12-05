@@ -1,3 +1,4 @@
+use ordered_float::NotNan;
 use std::collections::BinaryHeap;
 use std::io::BufRead;
 
@@ -7,26 +8,18 @@ enum Direction {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-struct Point(i32, i32);
+struct Point(f32, f32);
 impl Point {
-    fn from_f64(a: f32, b: f32) -> Self {
-        Self(a as i32, b as i32)
-    }
-
-    fn to_f64(self) -> (f32, f32) {
-        (self.0 as f32, self.1 as f32)
-    }
-
-    fn manhattan(self) -> i32 {
+    fn manhattan(self) -> f32 {
         self.0.abs() + self.1.abs()
     }
 }
 
 fn line_intersection(a: &(Point, Point), b: &(Point, Point)) -> Option<Point> {
-    let a1 = a.0.to_f64();
-    let a2 = a.1.to_f64();
-    let b1 = b.0.to_f64();
-    let b2 = b.1.to_f64();
+    let a1 = a.0;
+    let a2 = a.1;
+    let b1 = b.0;
+    let b2 = b.1;
 
     let denom = (a2.0 - a1.0) * (b2.1 - b1.1) - (a2.1 - a1.1) * (b2.0 - b1.0);
     if denom == 0.0 {
@@ -36,22 +29,19 @@ fn line_intersection(a: &(Point, Point), b: &(Point, Point)) -> Option<Point> {
     let t = ((a1.1 - b1.1) * (b2.0 - b1.0) - (a1.0 - b1.0) * (b2.1 - b1.1)) / denom;
     let u = ((a1.1 - b1.1) * (a2.0 - a1.0) - (a1.0 - b1.0) * (a2.1 - a1.1)) / denom;
     if t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0 {
-        Some(Point::from_f64(
-            a1.0 + t * (a2.0 - a1.0),
-            a1.1 + t * (a2.1 - a1.1),
-        ))
+        Some(Point(a1.0 + t * (a2.0 - a1.0), a1.1 + t * (a2.1 - a1.1)))
     } else {
         None
     }
 }
 
-fn line_length(a: Point, b: Point) -> i32 {
+fn line_length(a: Point, b: Point) -> f32 {
     // Manhattan distance is fine, they're straight lines anyway.
     (a.0 - b.0).abs() + (a.1 - b.1).abs()
 }
 
-fn to_lines(wire: &[(Direction, i32)]) -> Vec<(Point, Point)> {
-    let mut current_pos = Point(0, 0);
+fn to_lines(wire: &[(Direction, f32)]) -> Vec<(Point, Point)> {
+    let mut current_pos = Point(0.0, 0.0);
     let mut lines = Vec::new();
 
     for (direction, amount) in wire {
@@ -67,18 +57,18 @@ fn to_lines(wire: &[(Direction, i32)]) -> Vec<(Point, Point)> {
     lines
 }
 
-fn run(items: &[Vec<(Direction, i32)>]) -> (i32, i32) {
+fn run(items: &[Vec<(Direction, f32)>]) -> (f32, f32) {
     let wire1 = to_lines(&items[0]);
     let wire2 = to_lines(&items[1]);
 
     let mut manhattans = BinaryHeap::new();
     let mut lengths = BinaryHeap::new();
 
-    let mut a_length = 0;
+    let mut a_length = 0.0;
     for a in &wire1 {
         a_length += line_length(a.0, a.1);
 
-        let mut b_length = 0;
+        let mut b_length = 0.0;
         for b in &wire2 {
             b_length += line_length(b.0, b.1);
 
@@ -88,23 +78,26 @@ fn run(items: &[Vec<(Direction, i32)>]) -> (i32, i32) {
             };
 
             let manhattan = point.manhattan();
-            if manhattan != 0 {
-                manhattans.push(-manhattan);
+            if manhattan != 0.0 {
+                manhattans.push(-NotNan::new(manhattan).unwrap());
             }
 
             let length =
                 (a_length - line_length(a.1, point)) + (b_length - line_length(b.1, point));
-            if length != 0 {
-                lengths.push(-length)
+            if length != 0.0 {
+                lengths.push(-NotNan::new(length).unwrap())
             }
         }
     }
 
-    (-manhattans.peek().unwrap(), -lengths.peek().unwrap())
+    (
+        -manhattans.peek().unwrap().into_inner(),
+        -lengths.peek().unwrap().into_inner(),
+    )
 }
 
 fn main() {
-    let items: Vec<Vec<(Direction, i32)>> = std::io::stdin()
+    let items: Vec<Vec<(Direction, f32)>> = std::io::stdin()
         .lock()
         .lines()
         .map(|wire| {
@@ -112,7 +105,7 @@ fn main() {
                 .split(',')
                 .map(|command| {
                     let (direction, amount) = command.trim().split_at(1);
-                    let amount: i32 = amount.parse().unwrap();
+                    let amount: f32 = amount.parse().unwrap();
                     match direction {
                         "U" => (Direction::Y, amount),
                         "D" => (Direction::Y, -amount),
