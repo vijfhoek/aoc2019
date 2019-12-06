@@ -1,6 +1,6 @@
+use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::fmt::{Display, Formatter};
 use text_io::{try_read, try_scan};
 
 fn get(mem: &Vec<i64>, (mode, value): (i64, i64)) -> Option<i64> {
@@ -140,9 +140,7 @@ fn run(mem: &mut Vec<i64>) -> Option<()> {
 
         println!(
             " {:<5}  {:?}\t  {}  {}  {}",
-            ip,
-            instruction.opcode,
-            a, b, c,
+            ip, instruction.opcode, a, b, c,
         );
 
         ip = match instruction.opcode {
@@ -158,61 +156,59 @@ fn run(mem: &mut Vec<i64>) -> Option<()> {
 
             Opcode::Halt => {
                 break;
-            }
+            } // 3 => {
+              //     // read
+              //     *get_mut(mem, a)? = try_read!().ok()?;
+              //     ip + 2
+              // }
 
-            // 3 => {
-            //     // read
-            //     *get_mut(mem, a)? = try_read!().ok()?;
-            //     ip + 2
-            // }
+              // 4 => {
+              //     // write
+              //     println!(">> {}", get(mem, a)?);
+              //     ip + 2
+              // }
 
-            // 4 => {
-            //     // write
-            //     println!(">> {}", get(mem, a)?);
-            //     ip + 2
-            // }
+              // 5 => {
+              //     // jump-if-true
+              //     if get(mem, a)? != 0 {
+              //         get(mem, b)? as usize
+              //     } else {
+              //         ip + 3
+              //     }
+              // }
 
-            // 5 => {
-            //     // jump-if-true
-            //     if get(mem, a)? != 0 {
-            //         get(mem, b)? as usize
-            //     } else {
-            //         ip + 3
-            //     }
-            // }
+              // 6 => {
+              //     // jump-if-false
+              //     if get(mem, a)? == 0 {
+              //         get(mem, b)? as usize
+              //     } else {
+              //         ip + 3
+              //     }
+              // }
 
-            // 6 => {
-            //     // jump-if-false
-            //     if get(mem, a)? == 0 {
-            //         get(mem, b)? as usize
-            //     } else {
-            //         ip + 3
-            //     }
-            // }
+              // 7 => {
+              //     // less than
+              //     let result = get(mem, a)? < get(mem, b)?;
+              //     *get_mut(mem, c)? = if result { 1 } else { 0 };
+              //     ip + 4
+              // }
 
-            // 7 => {
-            //     // less than
-            //     let result = get(mem, a)? < get(mem, b)?;
-            //     *get_mut(mem, c)? = if result { 1 } else { 0 };
-            //     ip + 4
-            // }
+              // 8 => {
+              //     // equals
+              //     let result = get(mem, a)? == get(mem, b)?;
+              //     *get_mut(mem, c)? = if result { 1 } else { 0 };
+              //     ip + 4
+              // }
 
-            // 8 => {
-            //     // equals
-            //     let result = get(mem, a)? == get(mem, b)?;
-            //     *get_mut(mem, c)? = if result { 1 } else { 0 };
-            //     ip + 4
-            // }
+              // 99 => {
+              //     // halt
+              //     break;
+              // }
 
-            // 99 => {
-            //     // halt
-            //     break;
-            // }
-
-            // _ => {
-            //     // unknown opcode
-            //     panic!("unknown opcode (instruction={})", instruction)
-            // }
+              // _ => {
+              //     // unknown opcode
+              //     panic!("unknown opcode (instruction={})", instruction)
+              // }
         }
     }
     Some(())

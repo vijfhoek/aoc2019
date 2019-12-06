@@ -1,5 +1,5 @@
-use std::io::BufRead;
 use std::collections::HashMap;
+use std::io::BufRead;
 
 fn main() {
     let stdin = std::io::stdin();
@@ -10,7 +10,7 @@ fn main() {
         let mut parts = line.trim().split(')');
         let from = String::from(parts.next().unwrap());
         let to = String::from(parts.next().unwrap());
-        
+
         let entry = tree.entry(from).or_insert_with(Vec::new);
         entry.push(to);
     }
@@ -44,12 +44,16 @@ fn main() {
 
     dbg!(orbits);
 
-    let santa = santa_path.unwrap();
-    let you = you_path.unwrap();
-    for (santa_depth, santa_node) in santa.iter().rev().enumerate() {
-        if let Some(you_depth) = you.iter().rev().position(|you_node| you_node == santa_node) {
-            dbg!(santa_depth + you_depth - 2);
+    let santa_path = santa_path.unwrap();
+    let you_path = you_path.unwrap();
+    let mut lca = 0;
+    for i in 0..santa_path.len() {
+        if you_path[i] != santa_path[i] {
+            lca = i;
             break;
         }
     }
+
+    let transfers = santa_path.len() + you_path.len() - lca * 2 - 2;
+    dbg!(transfers);
 }
