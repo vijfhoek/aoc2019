@@ -15,8 +15,6 @@ fn main() {
         entry.push(to);
     }
 
-    dbg!(&tree);
-
     let mut orbits = 0;
     let mut santa_path = None;
     let mut you_path = None;
@@ -42,8 +40,6 @@ fn main() {
         }
     }
 
-    dbg!(orbits);
-
     let santa_path = santa_path.unwrap();
     let you_path = you_path.unwrap();
     let mut lca = 0;
@@ -55,5 +51,6 @@ fn main() {
     }
 
     let transfers = santa_path.len() + you_path.len() - lca * 2 - 2;
-    dbg!(transfers);
+
+    println!("{} {}", orbits, transfers);
 }
