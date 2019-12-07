@@ -1,33 +1,38 @@
 use std::collections::HashMap;
 use std::io::BufRead;
+use std::time::Instant;
 
 fn main() {
+    let san: usize = usize::from_str_radix("san", 36).unwrap();
+    let you: usize = usize::from_str_radix("you", 36).unwrap();
+    let com: usize = usize::from_str_radix("com", 36).unwrap();
+
     let stdin = std::io::stdin();
     let lines = stdin.lock().lines();
     let mut tree = HashMap::new();
     for line in lines {
         let line = line.unwrap();
         let mut parts = line.trim().split(')');
-        let from = String::from(parts.next().unwrap());
-        let to = String::from(parts.next().unwrap());
+        let from = usize::from_str_radix(parts.next().unwrap(), 36).unwrap();
+        let to = usize::from_str_radix(parts.next().unwrap(), 36).unwrap();
 
         let entry = tree.entry(from).or_insert_with(Vec::new);
         entry.push(to);
     }
+    let now = Instant::now();
 
     let mut orbits = 0;
     let mut santa_path = None;
     let mut you_path = None;
 
-    let mut stack = vec![(String::from("COM"), vec![])];
+    let mut stack = vec![(com, vec![])];
     while !stack.is_empty() {
         let (node, path) = stack.pop().unwrap();
         orbits += path.len();
 
-        if node == "SAN" {
+        if node == san {
             santa_path = Some(path.clone());
-        }
-        if node == "YOU" {
+        } else if node == you {
             you_path = Some(path.clone());
         }
 
@@ -35,7 +40,7 @@ fn main() {
             for child in children {
                 let mut new_path = path.clone();
                 new_path.push(child);
-                stack.push((String::from(child), new_path));
+                stack.push((*child, new_path));
             }
         }
     }
@@ -52,5 +57,6 @@ fn main() {
 
     let transfers = santa_path.len() + you_path.len() - lca * 2 - 2;
 
-    println!("{} {}", orbits, transfers);
+    let elapsed = now.elapsed();
+    println!("{} {} {:?}", orbits, transfers, elapsed);
 }

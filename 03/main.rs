@@ -1,6 +1,7 @@
 use ordered_float::NotNan;
 use std::collections::BinaryHeap;
 use std::io::BufRead;
+use std::time::Instant;
 
 enum Direction {
     X,
@@ -97,6 +98,7 @@ fn run(items: &[Vec<(Direction, f32)>]) -> (f32, f32) {
 }
 
 fn main() {
+    let now = Instant::now();
     let items: Vec<Vec<(Direction, f32)>> = std::io::stdin()
         .lock()
         .lines()
@@ -119,5 +121,5 @@ fn main() {
         .collect();
 
     let (part1, part2) = run(&items);
-    dbg!(part1, part2);
+    dbg!(part1, part2, now.elapsed());
 }

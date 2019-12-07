@@ -1,4 +1,4 @@
-#![feature(const_fn)]
+use std::time::Instant;
 
 fn filter(mut p: u32) -> bool {
     let mut double = 0;
@@ -26,6 +26,8 @@ fn filter(mut p: u32) -> bool {
 }
 
 fn main() {
+    let now = Instant::now();
+
     let from = 100000;
     let to = 999999;
     let mut count = 0;
@@ -36,5 +38,6 @@ fn main() {
         }
     }
 
-    dbg!(count);
+    let elapsed = now.elapsed();
+    println!("{} {:?}", count, elapsed);
 }

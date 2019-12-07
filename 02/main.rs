@@ -1,4 +1,5 @@
 use std::io::{self, BufRead};
+use std::time::Instant;
 
 fn run(mem: &mut Vec<i64>) {
     let mut ip = 0;
