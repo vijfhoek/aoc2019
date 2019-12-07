@@ -31,6 +31,10 @@ path = "05/main.rs"
 name = "06"
 path = "06/main.rs"
 
+[[bin]]
+name = "07"
+path = "07/main.rs"
+
 [dependencies]
 ordered-float = "1.0"
 text_io = "0.1.7"
