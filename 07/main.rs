@@ -2,6 +2,9 @@ use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
+use std::thread;
 use text_io::{try_read, try_scan};
 
 #[derive(Debug)]
@@ -118,17 +121,19 @@ impl Instruction {
 
 struct Interpreter {
     pub memory: Vec<i64>,
-    pub inputs: VecDeque<i64>,
-    pub outputs: VecDeque<i64>,
+    pub rx: Receiver<i64>,
+    pub tx: Sender<i64>,
+    pub last_output: Option<i64>,
     pub ip: i64,
 }
 
 impl Interpreter {
-    fn new(memory: &Vec<i64>) -> Self {
+    fn new(memory: &Vec<i64>, rx: Receiver<i64>, tx: Sender<i64>) -> Self {
         Self {
             memory: memory.clone(),
-            inputs: VecDeque::new(),
-            outputs: VecDeque::new(),
+            rx,
+            tx,
+            last_output: None,
             ip: 0,
         }
     }
@@ -141,10 +146,10 @@ impl Interpreter {
         let instruction = Instruction::fetch(self.ip, &&self.memory).unwrap();
         let (a, b, c) = &instruction.parameters;
 
-        println!(
-            " {:<5}  {:?} {}, {}, {}",
-            self.ip, instruction.opcode, a, b, c,
-        );
+        // println!(
+        //     " {:<5}  {:?} {}, {}, {}",
+        //     self.ip, instruction.opcode, a, b, c,
+        // );
 
         self.ip = match instruction.opcode {
             Opcode::Add => {
@@ -158,18 +163,15 @@ impl Interpreter {
             }
 
             Opcode::Read => {
-                *a.value_mut(&mut self.memory) = match self.inputs.pop_front() {
-                    Some(input) => input,
-                    None => try_read!().unwrap(),
-                };
-
+                *a.value_mut(&mut self.memory) = self.rx.recv().unwrap();
                 self.ip + 2
             }
 
             Opcode::Write => {
                 let value = a.value(&self.memory);
-                println!(">> {}", value);
-                self.outputs.push_back(value);
+                if self.tx.send(value).is_err() {
+                    self.last_output = Some(value);
+                }
                 self.ip + 2
             }
 
@@ -215,17 +217,19 @@ impl Interpreter {
 }
 
 fn run_cached(phase: i64, value: i64, mem: &Vec<i64>, cache: &mut HashMap<(i64, i64), i64>) -> i64 {
-    if let Some(output) = cache.get(&(phase, value)) {
-        return *output;
-    }
+    // if let Some(output) = cache.get(&(phase, value)) {
+    //     return *output;
+    // }
 
-    let mut interpreter = Interpreter::new(mem);
-    interpreter.inputs = vec![phase, value].into();
-    interpreter.run();
+    // let mut interpreter = Interpreter::new(mem);
+    // interpreter.inputs = vec![phase, value].into();
+    // interpreter.run();
 
-    let output = interpreter.outputs.pop_front().unwrap();
-    cache.insert((phase, value), output);
-    output
+    // let output = interpreter.outputs.pop_front().unwrap();
+    // cache.insert((phase, value), output);
+    // output
+
+    0
 }
 
 fn part1(memory: &Vec<i64>) -> i64 {
@@ -266,8 +270,60 @@ fn part1(memory: &Vec<i64>) -> i64 {
     *signals.peek().unwrap()
 }
 
-fn part2(memory: &Vec<i64>) -> i64 {
-    0
+fn part2(memory: Vec<i64>) -> i64 {
+    fn run(rx: Receiver<i64>, tx: Sender<i64>, memory: Vec<i64>) -> Option<i64> {
+        let mut interpreter = Interpreter::new(&memory, rx, tx);
+        interpreter.run();
+        interpreter.last_output
+    }
+
+    let from = 5;
+    let to = 10;
+    let mut signals = BinaryHeap::new();
+
+    for a in from..to {
+        for b in (from..to).filter(|b| b != &a) {
+            for c in (from..to).filter(|c| ![a, b].contains(c)) {
+                for d in (from..to).filter(|d| ![a, b, c].contains(d)) {
+                    for e in (from..to).filter(|e| ![a, b, c, d].contains(e)) {
+                        let (tx_a, rx_a) = mpsc::channel();
+                        let (tx_b, rx_b) = mpsc::channel();
+                        let (tx_c, rx_c) = mpsc::channel();
+                        let (tx_d, rx_d) = mpsc::channel();
+                        let (tx_e, rx_e) = mpsc::channel();
+
+                        tx_a.send(a).unwrap();
+                        tx_b.send(b).unwrap();
+                        tx_c.send(c).unwrap();
+                        tx_d.send(d).unwrap();
+                        tx_e.send(e).unwrap();
+                        tx_a.send(0).unwrap();
+
+                        let m = memory.clone();
+                        let ca = thread::spawn(move || run(rx_a, tx_b, m));
+                        let m = memory.clone();
+                        let cb = thread::spawn(move || run(rx_b, tx_c, m));
+                        let m = memory.clone();
+                        let cc = thread::spawn(move || run(rx_c, tx_d, m));
+                        let m = memory.clone();
+                        let cd = thread::spawn(move || run(rx_d, tx_e, m));
+                        let m = memory.clone();
+                        let ce = thread::spawn(move || run(rx_e, tx_a, m));
+
+                        ca.join().unwrap();
+                        cb.join().unwrap();
+                        cc.join().unwrap();
+                        cd.join().unwrap();
+
+                        if let Some(output) = ce.join().unwrap() {
+                            signals.push(output);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    *signals.peek().unwrap()
 }
 
 fn main() {
@@ -281,5 +337,5 @@ fn main() {
         .collect();
 
     dbg!(part1(&mem));
-    dbg!(part2(&mem));
+    dbg!(part2(mem));
 }
