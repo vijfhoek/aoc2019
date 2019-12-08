@@ -61,16 +61,16 @@ impl Parameter {
         Self { mode, value }
     }
 
-    fn value(&self, memory: &Vec<i64>) -> Option<i64> {
+    fn value(&self, memory: &Vec<i64>) -> i64 {
         match self.mode {
-            ParameterMode::Position => memory.get(self.value as usize).map(|i| *i),
-            ParameterMode::Immediate => Some(self.value),
+            ParameterMode::Position => memory[self.value as usize],
+            ParameterMode::Immediate => self.value,
         }
     }
 
-    fn value_mut<'a>(&self, memory: &'a mut Vec<i64>) -> Option<&'a mut i64> {
+    fn value_mut<'a>(&self, memory: &'a mut Vec<i64>) -> &'a mut i64 {
         match self.mode {
-            ParameterMode::Position => memory.get_mut(self.value as usize),
+            ParameterMode::Position => memory.get_mut(self.value as usize).unwrap(),
             ParameterMode::Immediate => panic!("can't get immediate as mut"),
         }
     }
@@ -92,7 +92,8 @@ struct Instruction {
 }
 
 impl Instruction {
-    pub fn fetch(ip: usize, memory: &mut Vec<i64>) -> Option<Self> {
+    pub fn fetch(ip: i64, memory: &Vec<i64>) -> Option<Self> {
+        let ip = ip as usize;
         let instruction = memory.get(ip)?;
 
         let opcode = Opcode::from(instruction % 100);
@@ -117,91 +118,100 @@ impl Instruction {
 
 struct Interpreter {
     pub memory: Vec<i64>,
+    pub inputs: VecDeque<i64>,
+    pub outputs: VecDeque<i64>,
+    pub ip: i64,
 }
 
 impl Interpreter {
+    fn new(memory: &Vec<i64>) -> Self {
+        Self {
+            memory: memory.clone(),
+            inputs: VecDeque::new(),
+            outputs: VecDeque::new(),
+            ip: 0,
+        }
+    }
+
     fn fetch_instruction(&self, ip: usize) -> Option<Instruction> {
         None
     }
 
-    pub fn run(&mut self) {}
-}
-
-fn run(mem: &mut Vec<i64>, mut inputs: VecDeque<i64>) -> Option<Vec<i64>> {
-    let mut ip = 0;
-    let mut outputs = Vec::new();
-
-    loop {
-        let instruction = Instruction::fetch(ip, mem)?;
+    pub fn step(&mut self) -> bool {
+        let instruction = Instruction::fetch(self.ip, &&self.memory).unwrap();
         let (a, b, c) = &instruction.parameters;
 
         println!(
             " {:<5}  {:?} {}, {}, {}",
-            ip, instruction.opcode, a, b, c,
+            self.ip, instruction.opcode, a, b, c,
         );
 
-        ip = match instruction.opcode {
+        self.ip = match instruction.opcode {
             Opcode::Add => {
-                *c.value_mut(mem)? = a.value(mem)? + b.value(mem)?;
-                ip + 4
+                *c.value_mut(&mut self.memory) = a.value(&self.memory) + b.value(&self.memory);
+                self.ip + 4
             }
 
             Opcode::Multiply => {
-                *c.value_mut(mem)? = a.value(mem)? * b.value(mem)?;
-                ip + 4
+                *c.value_mut(&mut self.memory) = a.value(&self.memory) * b.value(&self.memory);
+                self.ip + 4
             }
 
             Opcode::Read => {
-                *a.value_mut(mem)? = match inputs.pop_front() {
+                *a.value_mut(&mut self.memory) = match self.inputs.pop_front() {
                     Some(input) => input,
-                    None => try_read!().ok()?,
+                    None => try_read!().unwrap(),
                 };
 
-                ip + 2
+                self.ip + 2
             }
 
             Opcode::Write => {
-                let value = a.value(mem)?;
+                let value = a.value(&self.memory);
                 println!(">> {}", value);
-                outputs.push(value);
-                ip + 2
+                self.outputs.push_back(value);
+                self.ip + 2
             }
 
             Opcode::JumpIfTrue => {
-                if a.value(mem)? != 0 {
-                    b.value(mem)? as usize
+                if a.value(&self.memory) != 0 {
+                    b.value(&self.memory)
                 } else {
-                    ip + 3
+                    self.ip + 3
                 }
             }
 
             Opcode::JumpIfFalse => {
-                if a.value(mem)? == 0 {
-                    b.value(mem)? as usize
+                if a.value(&self.memory) == 0 {
+                    b.value(&self.memory)
                 } else {
-                    ip + 3
+                    self.ip + 3
                 }
             }
 
             Opcode::LessThan => {
-                let result = a.value(mem)? < b.value(mem)?;
-                *c.value_mut(mem)? = if result { 1 } else { 0 };
-                ip + 4
+                let result = a.value(&self.memory) < b.value(&self.memory);
+                *c.value_mut(&mut self.memory) = if result { 1 } else { 0 };
+                self.ip + 4
             }
 
             Opcode::Equals => {
-                let result = a.value(mem)? == b.value(mem)?;
-                *c.value_mut(mem)? = if result { 1 } else { 0 };
-                ip + 4
+                let result = a.value(&self.memory) == b.value(&self.memory);
+                *c.value_mut(&mut self.memory) = if result { 1 } else { 0 };
+                self.ip + 4
             }
 
             Opcode::Halt => {
-                break;
+                return false;
             }
         };
+
+        true
     }
 
-    Some(outputs)
+    pub fn run(&mut self) {
+        while self.step() {}
+    }
 }
 
 fn run_cached(phase: i64, value: i64, mem: &Vec<i64>, cache: &mut HashMap<(i64, i64), i64>) -> i64 {
@@ -209,10 +219,13 @@ fn run_cached(phase: i64, value: i64, mem: &Vec<i64>, cache: &mut HashMap<(i64, 
         return *output;
     }
 
-    let input = vec![phase, value];
-    let output = run(&mut mem.clone(), input.into()).unwrap();
-    cache.insert((phase, value), output[0]);
-    output[0]
+    let mut interpreter = Interpreter::new(mem);
+    interpreter.inputs = vec![phase, value].into();
+    interpreter.run();
+
+    let output = interpreter.outputs.pop_front().unwrap();
+    cache.insert((phase, value), output);
+    output
 }
 
 fn part1(memory: &Vec<i64>) -> i64 {
@@ -253,6 +266,10 @@ fn part1(memory: &Vec<i64>) -> i64 {
     *signals.peek().unwrap()
 }
 
+fn part2(memory: &Vec<i64>) -> i64 {
+    0
+}
+
 fn main() {
     let file = File::open(std::env::args().nth(1).expect("no filename provided")).unwrap();
     let mut input = String::new();
@@ -263,6 +280,6 @@ fn main() {
         .map(|x| x.trim().parse().unwrap())
         .collect();
 
-
     dbg!(part1(&mem));
+    dbg!(part2(&mem));
 }
