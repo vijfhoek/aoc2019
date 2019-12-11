@@ -1,12 +1,53 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
+use std::convert::{From, TryFrom};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Instant;
 use text_io::{try_read, try_scan};
 
 #[derive(Debug)]
+enum Direction {
+    Up,
+    Right,
+    Down,
+    Left,
+}
+impl Direction {
+    fn new() -> Self {
+        Direction::Up
+    }
+
+    fn turn_left(&self) -> Self {
+        match self {
+            Direction::Up => Direction::Left,
+            Direction::Right => Direction::Up,
+            Direction::Down => Direction::Right,
+            Direction::Left => Direction::Down,
+        }
+    }
+
+    fn turn_right(&self) -> Self {
+        match self {
+            Direction::Up => Direction::Right,
+            Direction::Right => Direction::Down,
+            Direction::Down => Direction::Left,
+            Direction::Left => Direction::Up,
+        }
+    }
+
+    fn movement(&self) -> (i64, i64) {
+        match self {
+            Direction::Up => (0, 1),
+            Direction::Right => (1, 0),
+            Direction::Down => (0, -1),
+            Direction::Left => (-1, 0),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 enum Opcode {
     Add,
     Multiply,
@@ -20,8 +61,8 @@ enum Opcode {
     Halt,
 }
 
-impl From<i128> for Opcode {
-    fn from(item: i128) -> Self {
+impl From<i64> for Opcode {
+    fn from(item: i64) -> Self {
         match item {
             1 => Opcode::Add,
             2 => Opcode::Multiply,
@@ -45,8 +86,8 @@ enum ParameterMode {
     Relative,
 }
 
-impl From<i128> for ParameterMode {
-    fn from(item: i128) -> Self {
+impl From<i64> for ParameterMode {
+    fn from(item: i64) -> Self {
         match item {
             0 => ParameterMode::Position,
             1 => ParameterMode::Immediate,
@@ -59,11 +100,11 @@ impl From<i128> for ParameterMode {
 #[derive(Debug)]
 struct Parameter {
     pub mode: ParameterMode,
-    pub value: i128,
+    pub value: i64,
 }
 
 impl Parameter {
-    fn new(mode: ParameterMode, value: i128) -> Self {
+    fn new(mode: ParameterMode, value: i64) -> Self {
         Self { mode, value }
     }
 }
@@ -85,22 +126,23 @@ struct Instruction {
 }
 
 impl Instruction {
-    pub fn fetch(ip: u128, memory: &HashMap<u128, i128>) -> Option<Self> {
-        let instruction = memory.get(&ip)?;
+    pub fn fetch(ip: i64, memory: &Vec<i64>) -> Option<Self> {
+        let ip = ip as usize;
+        let instruction = memory.get(ip)?;
 
         let opcode = Opcode::from(instruction % 100);
         let parameters = (
             Parameter::new(
                 ParameterMode::from(instruction / 100 % 10),
-                *memory.get(&(ip + 1)).unwrap_or(&0),
+                *memory.get(ip + 1).unwrap_or(&0),
             ),
             Parameter::new(
                 ParameterMode::from(instruction / 1000 % 10),
-                *memory.get(&(ip + 2)).unwrap_or(&0),
+                *memory.get(ip + 2).unwrap_or(&0),
             ),
             Parameter::new(
                 ParameterMode::from(instruction / 10000 % 10),
-                *memory.get(&(ip + 3)).unwrap_or(&0),
+                *memory.get(ip + 3).unwrap_or(&0),
             ),
         );
 
@@ -109,17 +151,17 @@ impl Instruction {
 }
 
 struct Interpreter {
-    pub memory: HashMap<u128, i128>,
-    pub rx: Option<Receiver<i128>>,
-    pub tx: Option<Sender<i128>>,
-    pub last_output: Option<i128>,
-    pub ip: u128,
-    pub relative_base: i128,
+    pub memory: Vec<i64>,
+    pub rx: Option<Receiver<i64>>,
+    pub tx: Option<Sender<i64>>,
+    pub last_output: Option<i64>,
+    pub ip: i64,
+    pub relative_base: i64,
     pub debug: bool,
 }
 
 impl Interpreter {
-    fn new(memory: &HashMap<u128, i128>) -> Self {
+    fn new(memory: &Vec<i64>) -> Self {
         Self {
             memory: memory.clone(),
             rx: None,
@@ -127,7 +169,7 @@ impl Interpreter {
             last_output: None,
             ip: 0,
             relative_base: 0,
-            debug: true,
+            debug: false,
         }
     }
 
@@ -135,10 +177,17 @@ impl Interpreter {
         let instruction = Instruction::fetch(self.ip, &&self.memory).unwrap();
         let (a, b, c) = &instruction.parameters;
 
-        // if self.debug {
-        //     print!("{:?} {}, {}, {}", instruction.opcode, a, b, c);
-        //     std::io::stdout().flush().unwrap();
-        // }
+        if self.debug {
+            let args = format!("{:?} {}, {}, {}", instruction.opcode, a, b, c);
+            print!(
+                "ip={:<5} rb={:<5} | {:<30} | {:>5} -> ?        ",
+                self.ip,
+                self.relative_base,
+                args,
+                self.memory.len()
+            );
+            std::io::stdout().flush().unwrap();
+        }
 
         let (ip, arg_count) = match instruction.opcode {
             Opcode::Add => {
@@ -152,9 +201,19 @@ impl Interpreter {
             }
 
             Opcode::Read => {
-                *self.value_mut(&c) = match &self.rx {
-                    Some(rx) => rx.recv().unwrap(),
-                    None => try_read!().unwrap(),
+                *self.value_mut(&a) = match &self.rx {
+                    Some(rx) => {
+                        let input = rx.recv().unwrap();
+                        if self.debug {
+                            print!(">> {}", input);
+                        }
+                        input
+                    }
+                    None => {
+                        print!(">> ");
+                        std::io::stdout().flush().unwrap();
+                        try_read!().unwrap()
+                    }
                 };
                 (self.ip + 2, 1)
             }
@@ -166,14 +225,14 @@ impl Interpreter {
                     Some(tx) => {
                         let _ = tx.send(value);
                     }
-                    None => println!("> {}", value),
+                    None => print!("<< {}", value),
                 }
                 (self.ip + 2, 1)
             }
 
             Opcode::JumpIfTrue => (
                 if self.value(&a) != 0 {
-                    self.value(&b) as u128
+                    self.value(&b)
                 } else {
                     self.ip + 3
                 },
@@ -182,7 +241,7 @@ impl Interpreter {
 
             Opcode::JumpIfFalse => (
                 if self.value(&a) == 0 {
-                    self.value(&b) as u128
+                    self.value(&b)
                 } else {
                     self.ip + 3
                 },
@@ -210,7 +269,6 @@ impl Interpreter {
                 return false;
             }
         };
-        self.ip = ip;
 
         if self.debug {
             let args = match arg_count {
@@ -220,14 +278,18 @@ impl Interpreter {
                 _ => panic!(),
             };
 
+            if instruction.opcode == Opcode::Read {
+                print!("\x1B[1A");
+            }
+
             println!(
-                "\rip={:<5} rb={:<5} | {:<30} | {:?}",
-                ip,
-                self.relative_base,
+                "\rip=\x1B[5C rb=\x1B[5C | {:<30} | \x1B[5C -> {:?}",
                 args,
-                self.memory.iter().max()
+                self.memory.len()
             );
         }
+
+        self.ip = ip;
 
         true
     }
@@ -236,33 +298,92 @@ impl Interpreter {
         while self.step() {}
     }
 
-    fn value(&self, parameter: &Parameter) -> i128 {
+    fn value(&self, parameter: &Parameter) -> i64 {
         let index = match parameter.mode {
-            ParameterMode::Position => parameter.value as u128,
-            ParameterMode::Relative => (parameter.value + self.relative_base) as u128,
+            ParameterMode::Position => parameter.value as usize,
+            ParameterMode::Relative => (parameter.value + self.relative_base) as usize,
             ParameterMode::Immediate => {
                 return parameter.value;
             }
         };
 
-        *self.memory.get(&index).unwrap_or(&0)
+        *self.memory.get(index).unwrap_or(&0)
     }
 
-    fn value_mut<'a>(&'a mut self, parameter: &Parameter) -> &'a mut i128 {
-        let index = match parameter.mode {
-            ParameterMode::Position => parameter.value as u128,
-            ParameterMode::Relative => (parameter.value + self.relative_base) as u128,
+    fn value_mut<'a>(&'a mut self, parameter: &Parameter) -> &'a mut i64 {
+        let index = usize::try_from(match parameter.mode {
+            ParameterMode::Position => parameter.value,
+            ParameterMode::Relative => (parameter.value + self.relative_base),
             ParameterMode::Immediate => panic!("can't get immediate as mut"),
-        };
+        })
+        .unwrap();
 
-        self.memory.entry(index).or_insert(0)
+        if index >= self.memory.len() {
+            if self.debug {
+                println!("resizing memory to {}", index);
+            }
+            self.memory.resize(index + 1, 0);
+        }
+
+        self.memory.get_mut(index).unwrap()
     }
 }
 
-fn part1(memory: &HashMap<u128, i128>) -> i128 {
+fn part1(memory: &Vec<i64>) -> usize {
     let mut interpreter = Interpreter::new(memory);
-    while interpreter.step() {}
-    interpreter.last_output.unwrap()
+    let (tx_input, rx_input) = channel();
+    let (tx_output, rx_output) = channel();
+    interpreter.rx = Some(rx_input);
+    interpreter.tx = Some(tx_output);
+
+    let mut map = vec![vec![false; 100]; 100];
+    let mut cx = 50usize;
+    let mut cy = 50usize;
+    let mut direction = Direction::new();
+
+    let mut painted = HashSet::new();
+    let mut turned = true;
+
+    print!("\x1B[1;1H");
+    for _ in 0..100 {
+        println!("{:>200}", "");
+    }
+
+    tx_input.send(1).unwrap();
+    while interpreter.step() {
+        if let Ok(out) = rx_output.try_recv() {
+            if !turned {
+                match out {
+                    0 => direction = direction.turn_left(),
+                    1 => direction = direction.turn_right(),
+                    _ => panic!("invalid turn {}", out),
+                };
+
+                let (y, x) = direction.movement();
+                cx = (cx as i64 + x) as usize;
+                cy = (cy as i64 + y) as usize;
+
+                tx_input.send(if map[cy][cx] { 1 } else { 0 }).unwrap();
+            } else {
+                let color = out == 1;
+                painted.insert((cx, cy));
+                map[cy][cx] = color;
+
+                // println!("\x1B[1;1H{} {} {:?}                 ", cx, cy, direction);
+                println!(
+                    "\x1B[1;1H\x1B[{}C\x1B[{}B{}\x1B[{}B",
+                    cy * 2,
+                    100 - cx,
+                    if map[cy][cx] { "🦀" } else { "  " },
+                    100 - cy,
+                );
+            }
+
+            turned = !turned;
+        }
+    }
+
+    painted.len()
 }
 
 fn main() {
@@ -270,13 +391,15 @@ fn main() {
     let mut input = String::new();
     BufReader::new(file).read_line(&mut input).unwrap();
 
-    let memory: HashMap<u128, i128> = input
+    let memory: Vec<i64> = input
         .split(",")
-        .enumerate()
-        .map(|(i, x)| (i as u128, x.trim().parse().unwrap()))
+        .map(|x| x.trim().parse().unwrap())
         .collect();
 
     let now = Instant::now();
-    dbg!(part1(&memory));
+    println!(
+        "\nPART 1: {}                                       ",
+        part1(&memory)
+    );
     dbg!(now.elapsed());
 }
