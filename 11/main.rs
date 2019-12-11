@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
@@ -84,23 +85,22 @@ struct Instruction {
 }
 
 impl Instruction {
-    pub fn fetch(ip: i128, memory: &Vec<i128>) -> Option<Self> {
-        let ip = ip as usize;
-        let instruction = memory.get(ip)?;
+    pub fn fetch(ip: u128, memory: &HashMap<u128, i128>) -> Option<Self> {
+        let instruction = memory.get(&ip)?;
 
         let opcode = Opcode::from(instruction % 100);
         let parameters = (
             Parameter::new(
                 ParameterMode::from(instruction / 100 % 10),
-                *memory.get(ip + 1).unwrap_or(&0),
+                *memory.get(&(ip + 1)).unwrap_or(&0),
             ),
             Parameter::new(
                 ParameterMode::from(instruction / 1000 % 10),
-                *memory.get(ip + 2).unwrap_or(&0),
+                *memory.get(&(ip + 2)).unwrap_or(&0),
             ),
             Parameter::new(
                 ParameterMode::from(instruction / 10000 % 10),
-                *memory.get(ip + 3).unwrap_or(&0),
+                *memory.get(&(ip + 3)).unwrap_or(&0),
             ),
         );
 
@@ -109,17 +109,17 @@ impl Instruction {
 }
 
 struct Interpreter {
-    pub memory: Vec<i128>,
+    pub memory: HashMap<u128, i128>,
     pub rx: Option<Receiver<i128>>,
     pub tx: Option<Sender<i128>>,
     pub last_output: Option<i128>,
-    pub ip: i128,
+    pub ip: u128,
     pub relative_base: i128,
     pub debug: bool,
 }
 
 impl Interpreter {
-    fn new(memory: &Vec<i128>) -> Self {
+    fn new(memory: &HashMap<u128, i128>) -> Self {
         Self {
             memory: memory.clone(),
             rx: None,
@@ -173,7 +173,7 @@ impl Interpreter {
 
             Opcode::JumpIfTrue => (
                 if self.value(&a) != 0 {
-                    self.value(&b)
+                    self.value(&b) as u128
                 } else {
                     self.ip + 3
                 },
@@ -182,7 +182,7 @@ impl Interpreter {
 
             Opcode::JumpIfFalse => (
                 if self.value(&a) == 0 {
-                    self.value(&b)
+                    self.value(&b) as u128
                 } else {
                     self.ip + 3
                 },
@@ -238,35 +238,30 @@ impl Interpreter {
 
     fn value(&self, parameter: &Parameter) -> i128 {
         let index = match parameter.mode {
-            ParameterMode::Position => parameter.value as usize,
-            ParameterMode::Relative => (parameter.value + self.relative_base) as usize,
+            ParameterMode::Position => parameter.value as u128,
+            ParameterMode::Relative => (parameter.value + self.relative_base) as u128,
             ParameterMode::Immediate => {
                 return parameter.value;
             }
         };
 
-        *self.memory.get(index).unwrap_or(&0)
+        *self.memory.get(&index).unwrap_or(&0)
     }
 
     fn value_mut<'a>(&'a mut self, parameter: &Parameter) -> &'a mut i128 {
         let index = match parameter.mode {
-            ParameterMode::Position => parameter.value as usize,
-            ParameterMode::Relative => (parameter.value + self.relative_base) as usize,
+            ParameterMode::Position => parameter.value as u128,
+            ParameterMode::Relative => (parameter.value + self.relative_base) as u128,
             ParameterMode::Immediate => panic!("can't get immediate as mut"),
         };
 
-        if index >= self.memory.len() {
-            println!("resizing memory to {}", index);
-            self.memory.resize(index + 1, 0);
-        }
-
-        self.memory.get_mut(index).unwrap()
+        self.memory.entry(index).or_insert(0)
     }
 }
 
-fn part1(memory: &Vec<i128>) -> i128 {
+fn part1(memory: &HashMap<u128, i128>) -> i128 {
     let mut interpreter = Interpreter::new(memory);
-    interpreter.run();
+    while interpreter.step() {}
     interpreter.last_output.unwrap()
 }
 
@@ -275,9 +270,10 @@ fn main() {
     let mut input = String::new();
     BufReader::new(file).read_line(&mut input).unwrap();
 
-    let memory: Vec<i128> = input
+    let memory: HashMap<u128, i128> = input
         .split(",")
-        .map(|x| x.trim().parse().unwrap())
+        .enumerate()
+        .map(|(i, x)| (i as u128, x.trim().parse().unwrap()))
         .collect();
 
     let now = Instant::now();
