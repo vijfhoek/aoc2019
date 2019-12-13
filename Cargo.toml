@@ -51,6 +51,15 @@ path = "10/main.rs"
 name = "11"
 path = "11/main.rs"
 
+[[bin]]
+name = "12"
+path = "12/main.rs"
+
+[[bin]]
+name = "13"
+path = "13/main.rs"
+
 [dependencies]
 ordered-float = "1.0"
 text_io = "0.1.7"
+regex = "1"
