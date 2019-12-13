@@ -193,6 +193,7 @@ impl Interpreter {
                         if self.debug {
                             print!(">> {}", input);
                         }
+                        while rx.try_recv().is_ok() {}
                         input
                     }
                     None => {
@@ -345,18 +346,23 @@ fn part1(memory: &Vec<i64>) -> usize {
         }
     }
 
-    let mut blocks = 0;
+    draw_map(&map, score);
+
+    map.iter()
+        .map(|row| row.iter().filter(|tile| **tile == Tile::Block).count())
+        .sum()
+}
+
+fn draw_map(map: &Vec<Vec<Tile>>, score: i64) {
+    print!("\x1B[1;1H");
     for row in map {
         for tile in row {
             print!(
                 "{}",
                 match tile {
                     Tile::Empty => "  ",
-                    Tile::Ball => "()",
-                    Tile::Block => {
-                        blocks += 1;
-                        "[]"
-                    }
+                    Tile::Ball => "⬤ ",
+                    Tile::Block => "█▉ ",
                     Tile::HorizontalPaddle => "▀▀",
                     Tile::Wall => "██",
                 }
@@ -365,11 +371,10 @@ fn part1(memory: &Vec<i64>) -> usize {
         println!();
     }
     println!("score: {}", score);
-
-    blocks
 }
 
 fn part2(memory: &Vec<i64>) -> i64 {
+    println!("\x1B[3J\x1Bc");
     let mut memory = memory.clone();
     memory[0] = 2;
 
@@ -394,7 +399,6 @@ fn part2(memory: &Vec<i64>) -> i64 {
             } else if y.is_none() {
                 y = Some(out);
             } else if x == Some(-1) && y == Some(0) {
-                // println!("{}, {}, {}, {}, {}", -1, 0, out, sent);
                 score = out;
                 x = None;
                 y = None;
@@ -402,7 +406,6 @@ fn part2(memory: &Vec<i64>) -> i64 {
                 let x_ = x.unwrap() as usize;
                 let y_ = y.unwrap() as usize;
                 let tile = Tile::from(out);
-                println!("{}, {}, {:?}", x_, y_, tile);
                 if tile == Tile::HorizontalPaddle {
                     paddle = x_;
                 } else if tile == Tile::Ball {
@@ -416,25 +419,7 @@ fn part2(memory: &Vec<i64>) -> i64 {
             }
 
             if let Some(ball_) = ball {
-                // print!("\x1B[1;1H");
-                for row in &map {
-                    for tile in row {
-                        print!(
-                            "{}",
-                            match tile {
-                                Tile::Empty => "  ",
-                                Tile::Ball => "()",
-                                Tile::Block => {
-                                    "██"
-                                }
-                                Tile::HorizontalPaddle => "▀▀",
-                                Tile::Wall => "██",
-                            }
-                        )
-                    }
-                    println!();
-                }
-                println!("score: {}, {}, {}", score, paddle, ball_);
+                draw_map(&map, score);
 
                 if paddle > ball_ {
                     tx_input.send(-1).unwrap();
@@ -462,6 +447,7 @@ fn main() {
         .map(|x| x.trim().parse().unwrap())
         .collect();
 
-    dbg!(part1(&memory));
-    dbg!(part2(&memory));
+    let part1 = part1(&memory);
+    let part2 = part2(&memory);
+    dbg!(part1, part2);
 }
