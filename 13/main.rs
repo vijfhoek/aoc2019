@@ -362,7 +362,7 @@ fn draw_map(map: &Vec<Vec<Tile>>, score: i64) {
                 match tile {
                     Tile::Empty => "  ",
                     Tile::Ball => "⬤ ",
-                    Tile::Block => "█▉ ",
+                    Tile::Block => "█▉",
                     Tile::HorizontalPaddle => "▀▀",
                     Tile::Wall => "██",
                 }
