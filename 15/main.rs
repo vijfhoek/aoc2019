@@ -1,3 +1,4 @@
+use std::collections::{HashSet, VecDeque};
 use std::convert::{From, TryFrom};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
@@ -5,23 +6,56 @@ use std::io::{BufRead, BufReader, Write};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use text_io::{try_read, try_scan};
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-enum Tile {
-    Empty,
-    Wall,
-    Block,
-    HorizontalPaddle,
-    Ball,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Movement {
+    North,
+    South,
+    West,
+    East,
 }
-impl From<i64> for Tile {
+impl Into<i64> for &Movement {
+    fn into(self) -> i64 {
+        match self {
+            Movement::North => 1,
+            Movement::South => 2,
+            Movement::West => 3,
+            Movement::East => 4,
+        }
+    }
+}
+impl Movement {
+    fn reverse(&self) -> Self {
+        match self {
+            Movement::North => Movement::South,
+            Movement::South => Movement::North,
+            Movement::West => Movement::East,
+            Movement::East => Movement::West,
+        }
+    }
+
+    fn coords(&self) -> (i64, i64) {
+        match self {
+            Movement::North => (0, 1),
+            Movement::South => (0, -1),
+            Movement::West => (-1, 0),
+            Movement::East => (1, 0),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Status {
+    HitWall,
+    Moved,
+    Found,
+}
+impl From<i64> for Status {
     fn from(value: i64) -> Self {
         match value {
-            0 => Tile::Empty,
-            1 => Tile::Wall,
-            2 => Tile::Block,
-            3 => Tile::HorizontalPaddle,
-            4 => Tile::Ball,
-            _ => panic!("unknown tile {}", value),
+            0 => Status::HitWall,
+            1 => Status::Moved,
+            2 => Status::Found,
+            _ => panic!(),
         }
     }
 }
@@ -152,6 +186,12 @@ impl Interpreter {
         }
     }
 
+    fn reset(&mut self, memory: &Vec<i64>) {
+        self.memory = memory.clone();
+        self.ip = 0;
+        self.relative_base = 0;
+    }
+
     pub fn step(&mut self) -> bool {
         let instruction = Instruction::fetch(self.ip, &&self.memory).unwrap();
         let (a, b, c) = &instruction.parameters;
@@ -186,7 +226,6 @@ impl Interpreter {
                         if self.debug {
                             print!(">> {}", input);
                         }
-                        while rx.try_recv().is_ok() {}
                         input
                     }
                     None => {
@@ -310,124 +349,139 @@ impl Interpreter {
     }
 }
 
-fn part1(memory: &Vec<i64>) -> usize {
+fn draw_map(
+    map: &[Vec<bool>],
+    seen: &HashSet<(i64, i64)>,
+    dx: i64,
+    dy: i64,
+    oxygen: Option<(i64, i64)>,
+) {
+    print!("\x1B[1;1H");
+    for (y, row) in map.iter().enumerate() {
+        for (x, tile) in row.iter().enumerate() {
+            let x = x as i64 - 25;
+            let y = y as i64 - 25;
+            if *tile {
+                print!("██")
+            } else if oxygen == Some((x, y)) {
+                print!("⛳")
+            } else if dx == x && dy == y {
+                print!("🦀")
+            } else if x == 0 && y == 0 {
+                print!("🚦")
+            } else if seen.contains(&(x, y)) {
+                print!("  ")
+            } else {
+                print!("▒▒")
+            }
+        }
+        println!();
+    }
+}
+
+fn part1(memory: &Vec<i64>) -> (usize, Vec<Vec<bool>>, (i64, i64)) {
     let mut interpreter = Interpreter::new(memory);
     let (tx_input, rx_input) = channel();
     let (tx_output, rx_output) = channel();
     interpreter.rx = Some(rx_input);
     interpreter.tx = Some(tx_output);
 
-    let mut map = vec![vec![Tile::Empty; 50]; 26];
-    let mut score = 0;
-    let mut x = None;
-    let mut y = None;
+    let mut map = vec![vec![false; 50]; 50];
 
-    tx_input.send(1).unwrap();
+    let mut stack: VecDeque<(_, (i64, i64))> = VecDeque::from(vec![
+        (vec![Movement::North], (0, -1)),
+        (vec![Movement::South], (0, 1)),
+        (vec![Movement::West], (-1, 0)),
+        (vec![Movement::East], (1, 0)),
+    ]);
+
+    let mut seen = HashSet::new();
+    let mut queue = VecDeque::from(vec![Movement::North]);
+    let (mut path, (mut x, mut y)) = stack.pop_front().unwrap();
+
+    let mut oxygen = None;
+    let mut distance = None;
+
+    let movement = &queue.pop_front().unwrap();
+    tx_input.send(movement.into()).unwrap();
     while interpreter.step() {
         if let Ok(out) = rx_output.try_recv() {
-            if x.is_none() {
-                x = Some(out);
-            } else if y.is_none() {
-                y = Some(out);
-            } else if x == Some(-1) && y == Some(0) {
-                score = out;
-            } else {
-                map[y.unwrap() as usize][x.unwrap() as usize] = Tile::from(out);
-                x = None;
-                y = None;
+            let status = Status::from(out);
+            if queue.is_empty() {
+                // draw_map(&map, &seen, x, y, oxygen);
+                match &status {
+                    Status::HitWall => {
+                        let y_ = (y + 25) as usize;
+                        let x_ = (x + 25) as usize;
+                        map[y_][x_] = true;
+                    }
+                    Status::Moved => {
+                        let new = [path.clone(), vec![Movement::North]].concat();
+                        stack.push_back((new, (x, y - 1)));
+
+                        let new = [path.clone(), vec![Movement::South]].concat();
+                        stack.push_back((new, (x, y + 1)));
+
+                        let new = [path.clone(), vec![Movement::West]].concat();
+                        stack.push_back((new, (x - 1, y)));
+
+                        let new = [path.clone(), vec![Movement::East]].concat();
+                        stack.push_back((new, (x + 1, y)));
+                    }
+                    Status::Found => {
+                        if distance.is_none() {
+                            oxygen = Some((x, y));
+                            distance = Some(path.len());
+                        }
+                    }
+                }
+
+                while queue.is_empty() {
+                    if let Some((path_, (x_, y_))) = stack.pop_front() {
+                        path = path_;
+                        x = x_;
+                        y = y_;
+
+                        if seen.insert((x, y)) {
+                            interpreter.reset(memory);
+                            queue.extend(&path);
+                        }
+                    } else {
+                        return (distance.unwrap(), map, oxygen.unwrap());
+                    }
+                }
             }
+
+            let movement = &queue.pop_front().unwrap();
+            tx_input.send(movement.into()).unwrap();
         }
     }
 
-    draw_map(&map, score);
-
-    map.iter()
-        .map(|row| row.iter().filter(|tile| **tile == Tile::Block).count())
-        .sum()
+    panic!();
 }
 
-fn draw_map(map: &Vec<Vec<Tile>>, score: i64) {
-    print!("\x1B[1;1H");
-    for row in map {
-        for tile in row {
-            print!(
-                "{}",
-                match tile {
-                    Tile::Empty => "  ",
-                    Tile::Ball => "⬤ ",
-                    Tile::Block => "█▉",
-                    Tile::HorizontalPaddle => "▀▀",
-                    Tile::Wall => "██",
-                }
-            )
+fn part2(map: &Vec<Vec<bool>>, (x, y): (i64, i64)) -> i64 {
+    let x = (x + 25) as usize;
+    let y = (y + 25) as usize;
+    let mut stack = vec![((x, y), 0)];
+    let mut seen = HashSet::new();
+    let mut max = 0;
+    while !stack.is_empty() {
+        let ((x, y), length) = stack.pop().unwrap();
+        if !seen.insert((x, y)) || map[y][x] {
+            continue;
         }
-        println!();
-    }
-    println!("score: {}", score);
-}
-
-fn part2(memory: &Vec<i64>) -> i64 {
-    println!("\x1B[3J\x1Bc");
-    let mut memory = memory.clone();
-    memory[0] = 2;
-
-    let mut interpreter = Interpreter::new(&memory);
-    let (tx_input, rx_input) = channel();
-    let (tx_output, rx_output) = channel();
-    interpreter.rx = Some(rx_input);
-    interpreter.tx = Some(tx_output);
-
-    let mut map = vec![vec![Tile::Empty; 50]; 26];
-    let mut paddle = 0;
-    let mut ball = None;
-    let mut score = 0;
-    let mut x = None;
-    let mut y = None;
-
-    tx_input.send(1).unwrap();
-    while interpreter.step() {
-        if let Ok(out) = rx_output.try_recv() {
-            if x.is_none() {
-                x = Some(out);
-            } else if y.is_none() {
-                y = Some(out);
-            } else if x == Some(-1) && y == Some(0) {
-                score = out;
-                x = None;
-                y = None;
-            } else {
-                let x_ = x.unwrap() as usize;
-                let y_ = y.unwrap() as usize;
-                let tile = Tile::from(out);
-                if tile == Tile::HorizontalPaddle {
-                    paddle = x_;
-                } else if tile == Tile::Ball {
-                    ball = Some(x_);
-                }
-
-                map[y_][x_] = tile;
-
-                x = None;
-                y = None;
-            }
-
-            if let Some(ball_) = ball {
-                draw_map(&map, score);
-
-                if paddle > ball_ {
-                    tx_input.send(-1).unwrap();
-                } else if paddle == ball_ {
-                    tx_input.send(0).unwrap();
-                } else if paddle < ball_ {
-                    tx_input.send(1).unwrap();
-                }
-
-                ball = None;
-            }
+        if length > max {
+            max = length;
         }
+
+        stack.push(((x, y - 1), length + 1));
+        stack.push(((x, y + 1), length + 1));
+        stack.push(((x - 1, y), length + 1));
+        stack.push(((x + 1, y), length + 1));
     }
 
-    score
+    max
 }
 
 fn main() {
@@ -436,11 +490,12 @@ fn main() {
     BufReader::new(file).read_line(&mut input).unwrap();
 
     let memory: Vec<i64> = input
-        .split(",")
+        .split(',')
         .map(|x| x.trim().parse().unwrap())
         .collect();
 
-    let part1 = part1(&memory);
-    let part2 = part2(&memory);
-    dbg!(part1, part2);
+    let (part1, map, oxygen) = part1(&memory);
+    dbg!(part1);
+    let part2 = part2(&map, oxygen);
+    dbg!(part2);
 }
